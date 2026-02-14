@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import status from "http-status";
 import { Role, Specialty } from "../../../generated/prisma/client";
 import AppError from "../../errorHelpers/AppError";
 import { auth } from "../../lib/auth";
 import { prisma } from "../../lib/prisma";
-import { ICreateDoctorPayload } from "./user.interface";
+import { ICreateAdminPayload, ICreateDoctorPayload } from "./user.interface";
 
 const createDoctor = async (payload: ICreateDoctorPayload) => {
   const specialties: Specialty[] = [];
@@ -15,7 +16,10 @@ const createDoctor = async (payload: ICreateDoctorPayload) => {
       },
     });
     if (!specialty) {
-      throw new AppError(status.NOT_FOUND,`Specialty with id ${specialtyId} not found`);
+      throw new AppError(
+        status.NOT_FOUND,
+        `Specialty with id ${specialtyId} not found`,
+      );
     }
     specialties.push(specialty);
   }
@@ -78,8 +82,8 @@ const createDoctor = async (payload: ICreateDoctorPayload) => {
           qualification: true,
           currentWorkingPlace: true,
           designation: true,
-          createAt: true,
-          updateAt: true,
+          createdAt: true,
+          updatedAt: true,
           user: {
             select: {
               id: true,
@@ -121,6 +125,49 @@ const createDoctor = async (payload: ICreateDoctorPayload) => {
   }
 };
 
+const createAdmin = async (payload: ICreateAdminPayload) => {
+  // Step 1: Check if user already exists
+  const userExists = await prisma.user.findUnique({
+    where: {
+      email: payload.admin.email,
+    },
+  });
+
+  if (userExists) {
+    throw new AppError(status.CONFLICT, "User with this email already exists");
+  }
+
+  const { admin, role, password } = payload;
+  // Step 2: Create user account with Better Auth
+  const userData = await auth.api.signUpEmail({
+    body: {
+      ...admin,
+      password,
+      role,
+      needPasswordChange: true,
+    },
+  });
+
+  try {
+    const adminData = await prisma.admin.create({
+      data: {
+        userId: userData.user.id,
+        ...admin,
+      },
+    });
+    return adminData;
+  } catch (error: any) {
+    console.log("Error creating admin: ", error);
+    await prisma.user.delete({
+      where: {
+        id: userData.user.id,
+      },
+    });
+    throw error;
+  }
+};
+
 export const UserService = {
   createDoctor,
+  createAdmin,
 };
